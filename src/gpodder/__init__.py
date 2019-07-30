@@ -20,19 +20,20 @@
 # This metadata block gets parsed by setup.py - use single quotes only
 __tagline__ = 'Media aggregator and podcast client'
 __author__ = 'Thomas Perl <thp@gpodder.org>'
-__version__ = '3.10.8'
-__date__ = '2019-04-04'
+__version__ = '3.10.9'
+__date__ = '2019-06-09'
 __copyright__ = '© 2005-2019 The gPodder Team'
 __license__ = 'GNU General Public License, version 3 or later'
 __url__ = 'http://gpodder.org/'
 
 __version_info__ = tuple(int(x) for x in __version__.split('.'))
 
-import os
-import sys
-import platform
 import gettext
 import locale
+import os
+import platform
+import socket
+import sys
 
 from gpodder.build_info import BUILD_TYPE
 
@@ -134,7 +135,6 @@ del locale_dir
 
 # Set up socket timeouts to fix bug 174
 SOCKET_TIMEOUT = 60
-import socket
 socket.setdefaulttimeout(SOCKET_TIMEOUT)
 del socket
 del SOCKET_TIMEOUT

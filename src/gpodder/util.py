@@ -1402,7 +1402,10 @@ def format_seconds_to_hour_min_sec(seconds):
 
 def http_request(url, method='HEAD'):
     (scheme, netloc, path, parms, qry, fragid) = urllib.parse.urlparse(url)
-    conn = http.client.HTTPConnection(netloc)
+    if scheme == 'https':
+        conn = http.client.HTTPSConnection(netloc)
+    else:
+        conn = http.client.HTTPConnection(netloc)
     start = len(scheme) + len('://') + len(netloc)
     conn.request(method, url[start:])
     return conn.getresponse()
@@ -1498,17 +1501,17 @@ def sanitize_filename_ext(filename, ext, max_length, max_length_with_ext):
     Truncate filename if greater than max_length.
     Truncate extension if filename.extension is greater than max_length_with_ext.
     :param str filename: filename without extension
-    :param str ext: extension without dot
-    :return (str, str): (sanitized_truncated_filename, sanitized_extension_without_dot)
+    :param str ext: extension
+    :return (str, str): (sanitized_truncated_filename, sanitized_extension)
 
     >>> sanitize_filename_ext('podcast_4987_faz_essay_der_podcast_fur_die_geschichte' \
                               '_hinter_den_nachrichten_episode_4_04_die_macht_der_tater_brechen', \
-                              "mp3", 120, 131)
-    ('podcast_4987_faz_essay_der_podcast_fur_die_geschichte_hinter_den_nachrichten_episode_4_04_die_macht_der_tater_brechen', 'mp3')
+                              ".mp3", 120, 131)
+    ('podcast_4987_faz_essay_der_podcast_fur_die_geschichte_hinter_den_nachrichten_episode_4_04_die_macht_der_tater_brechen', '.mp3')
     """
     sanitized_fn = sanitize_filename(filename, max_length)
-    sanitized_ext = sanitize_filename(ext, max_length_with_ext - len(sanitized_fn) - 1)
-    return (sanitized_fn, sanitized_ext)
+    sanitized_ext = sanitize_filename(ext, max_length_with_ext - len(sanitized_fn))
+    return (sanitized_fn, "." + sanitized_ext)
 
 
 def find_mount_point(directory):
@@ -2072,3 +2075,99 @@ class Popen(subprocess.Popen):
             print("- - Caught - -\n{}: {}\n- - -    - - -\n".format(e.__class__.__name__, e))
 
         logger.info('Log spam only occurs if returncode is non-zero or if explaining the Windows redirection error.')
+
+
+def _parse_mimetype_sorted_dictitems(mimetype):
+    """ python 3.5 unorderd dict compat for doctest. don't use! """
+    r = parse_mimetype(mimetype)
+    return r[0], r[1], sorted(r[2].items())
+
+
+def parse_mimetype(mimetype):
+    """
+    parse mimetype into (type, subtype, parameters)
+    see RFC 2045 §5.1
+    TODO: unhandled comments and continuations
+
+    >>> _parse_mimetype_sorted_dictitems('application/atom+xml;profile=opds-catalog;type=feed;kind=acquisition')
+    ('application', 'atom+xml', [('kind', 'acquisition'), ('profile', 'opds-catalog'), ('type', 'feed')])
+    >>> _parse_mimetype_sorted_dictitems('application/atom+xml; profile=opds-catalog ; type=feed ; kind=acquisition')
+    ('application', 'atom+xml', [('kind', 'acquisition'), ('profile', 'opds-catalog'), ('type', 'feed')])
+    >>> _parse_mimetype_sorted_dictitems(None)
+    (None, None, [])
+    >>> _parse_mimetype_sorted_dictitems('')
+    (None, None, [])
+    >>> _parse_mimetype_sorted_dictitems('application/x-myapp;quoted="a quoted string with ; etc.";a=b')
+    ('application', 'x-myapp', [('a', 'b'), ('quoted', 'a quoted string with ; etc.')])
+    """
+    class MIMETypeException(Exception):
+        """ when an exception is encountered parsing mime type """
+
+    if not mimetype or '/' not in mimetype:
+        return (None, None, {})
+    main, sub = mimetype.split('/', 1)
+    try:
+        sub, rawparams = sub.split(';', 1)
+        params = {}
+        key = ''
+        value = ''
+        invalue = False
+        inquotes = False
+        quotedvalue = False
+        nomore = False
+        offset = len(main) + 1 + len(sub) + 1
+        for i, c in enumerate(rawparams):
+            if inquotes:
+                if c == '"':
+                    inquotes = False
+                    quotedvalue = True
+                    nomore = True
+                else:
+                    value += c
+                continue
+            if c == ';':
+                if invalue:
+                    params[key] = value
+                    key = ''
+                    invalue = False
+                    inquotes = False
+                    nomore = False
+                else:
+                    raise MIMETypeException("Unable to parse mimetype '%s': unexpected ; at %i" % (mimetype, offset + i))
+            elif c == '"':
+                if invalue:
+                    if value:
+                        raise MIMETypeException("Unable to parse mimetype '%s': unexpected \" at %i" % (mimetype, offset + i))
+                    inquotes = True
+            elif c == '=':
+                if invalue:
+                    raise MIMETypeException("Unable to parse mimetype '%s': unexpected = at %i" % (mimetype, offset + i))
+                invalue = True
+                quotedvalue = False
+                value = ''
+            elif c in (' ', '\t'):
+                if invalue and value:
+                    nomore = True
+                if not invalue and key:
+                    nomore = True
+            else:
+                if nomore:
+                    raise MIMETypeException("Unable to parse mimetype '%s': unexpected %s after space at %i" % (mimetype, c, offset + i))
+                if invalue:
+                    value += c
+                else:
+                    key += c
+        # after loop
+        if invalue:
+            if value or quotedvalue:
+                params[key] = value
+            else:
+                raise MIMETypeException("Unable to parse mimetype '%s': empty value for %s" % (mimetype, key))
+        elif key:
+            raise MIMETypeException("Unable to parse mimetype '%s': missing value for %s" % (mimetype, key))
+        elif inquotes:
+            raise MIMETypeException("Unable to parse mimetype '%s': unclosed \"" % mimetype)
+        return (main, sub, params)
+    except MIMETypeException as e:
+        print(e)
+        return (None, None, {})
